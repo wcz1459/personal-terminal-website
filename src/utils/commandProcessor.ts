@@ -1,6 +1,5 @@
 import figlet from 'figlet';
 import { sha256 } from 'js-sha256';
-import { bootSequence } from './boot'; // <--- 添加这一行
 
 // --- API Response Type Interfaces ---
 interface UserResponse { message?: string; error?: string; success?: boolean; }
@@ -491,7 +490,7 @@ export const processCommand = async (
             'Hello! My name is Rikka Wu.',
             'I am a sixth-grade student who is passionate about Web development.',
             'This terminal website is built with React and the full power of the Linkium ecosystem.',
-            'Feel free to explore the commands. Type `help` for a guide.',
+            'Feel free to explore the commands. Type `help` for a guide.'
             '你好！我叫吴承泽。',
             '我是一名对Web开发充满热情的六年级学生。',
             '这个终端网站是我最喜欢的项目之一，它使用 React 和 Linkium 的全套生态系统构建。',

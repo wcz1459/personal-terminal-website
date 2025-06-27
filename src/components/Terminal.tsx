@@ -12,7 +12,7 @@ declare global {
   }
 }
 
-// Hollywood component
+// A simple full-screen component for the 'hollywood' command
 const Hollywood: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     const ref = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -20,19 +20,21 @@ const Hollywood: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         const intervalId = setInterval(() => {
             if (ref.current) {
                 let text = '';
-                for (let i = 0; i < 2000; i++) {
+                for (let i = 0; i < 2000; i++) { // Generate a screen full of random text
                     text += chars[Math.floor(Math.random() * chars.length)];
                 }
                 ref.current.innerText = text;
             }
         }, 50);
 
-        const handleKeyDown = () => onExit();
-        window.addEventListener('keydown', handleKeyDown);
+        const handleInteraction = () => onExit();
+        window.addEventListener('keydown', handleInteraction);
+        window.addEventListener('click', handleInteraction);
 
         return () => {
             clearInterval(intervalId);
-            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keydown', handleInteraction);
+            window.removeEventListener('click', handleInteraction);
         };
     }, [onExit]);
 
@@ -40,7 +42,8 @@ const Hollywood: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         <div ref={ref} style={{
             position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
             backgroundColor: 'black', color: 'lime', fontFamily: 'monospace',
-            fontSize: '16px', wordWrap: 'break-word', whiteSpace: 'pre-wrap', zIndex: 1000
+            fontSize: '16px', wordWrap: 'break-word', whiteSpace: 'pre-wrap', zIndex: 1000,
+            cursor: 'pointer', userSelect: 'none'
         }}></div>
     );
 };
@@ -71,24 +74,74 @@ const Terminal: React.FC = () => {
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hostname = "terminal.wcz.com"; // Centralized hostname
+  const hostname = "terminal.wcz.com"; // Centralized hostname for display
   const prompt = isJsRepl ? `<span style="color:var(--yellow);">&gt;&nbsp;</span>` : `<span class="prompt-user">${user?.username || 'guest'}@${hostname}</span><span class="prompt-symbol">:${currentPath}$ </span>`;
   
   const scrollToBottom = () => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    terminalEndRef.current?.scrollIntoView({ behavior: 'auto' }); // Use 'auto' for instant scroll
   };
 
   useEffect(() => {
-    // ... (boot sequence and turnstile script loading logic - unchanged)
+    const startBoot = async () => {
+      for (const line of bootSequence) {
+        setHistory(prev => [...prev, line.text]);
+        await new Promise(resolve => setTimeout(resolve, line.delay));
+      }
+      setIsBooting(false);
+      setHistory(prev => [...prev, `Welcome! Type 'login guest' or 'login admin' to begin. Or type 'help'.`]);
+    };
+    startBoot();
   }, []);
   
+  const loadTurnstileScript = useCallback(() => {
+    if (turnstileLoaded.current || document.querySelector('script[src*="turnstile"]')) {
+        turnstileLoaded.current = true;
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+        turnstileLoaded.current = true;
+    };
+    document.head.appendChild(script);
+  }, []);
+
   useEffect(() => {
+    loadTurnstileScript();
     scrollToBottom();
     inputRef.current?.focus();
-  }, [history, isBooting]);
+  }, [history, isBooting, loadTurnstileScript]);
 
+  useEffect(() => {
+    if (loginAttempt) {
+      const renderTurnstile = () => {
+        if (window.turnstile) {
+            window.turnstile.render('#turnstile-container', {
+                sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
+                callback: (token: string) => {
+                    setLoginAttempt(prev => prev ? { ...prev, turnstileToken: token } : null);
+                    setHistory(prev => [...prev, 'Turnstile verification successful. Please enter password.']);
+                    setIsPasswordPrompt(true);
+                },
+                'error-callback': () => {
+                    addToast('Turnstile failed to load. Please refresh.', 'error');
+                    setLoginAttempt(null);
+                },
+            });
+        } else {
+            setTimeout(renderTurnstile, 100);
+        }
+      };
+      renderTurnstile();
+    } else {
+      const container = document.getElementById('turnstile-container');
+      if (container) container.innerHTML = '';
+    }
+  }, [loginAttempt, addToast]);
+  
   const handleCommandExecution = useCallback(async (command: string) => {
-    // Controller for commands to interact with terminal state
     const terminalController = {
         clearScreen: () => setHistory([]),
         pushToHistory: (lines: string[]) => setHistory(prev => [...prev, ...lines]),
@@ -112,17 +165,18 @@ const Terminal: React.FC = () => {
             return;
         }
         try {
-            const result = new Function('return ' + command)();
+            // A safer eval using new Function
+            const result = new Function(`"use strict"; return (() => { ${command} })()`)();
             setHistory(prev => [...prev, `${prompt}${command}`, String(result)]);
         } catch (e: any) {
-            setHistory(prev => [...prev, `${prompt}${command}`, `<span style="color:var(--red);">${e.message}</span>`]);
+            setHistory(prev => [...prev, `${prompt}${command}`, `<span style="color:var(--red);">${e.name}: ${e.message}</span>`]);
         }
         return;
     }
 
     const output = await processCommand(command, authContext, vfsContext, addToast, terminalController);
     
-    // Handle special commands
+    // Handle special commands returned from commandProcessor
     if (output.special === 'clear') { setHistory([]); }
     else if (output.special === 'js_repl') { setIsJsRepl(true); setHistory(prev => [...prev, 'Entering JavaScript REPL. Type "exit" to leave.']); }
     else if (output.special === 'hollywood') { setIsHollywood(true); }
@@ -130,7 +184,7 @@ const Terminal: React.FC = () => {
         const jsCommand = output.text.find(line => line.startsWith('window.open'));
         if (jsCommand) {
             try { new Function(jsCommand)(); setHistory(prev => [...prev, "Executing..."]); }
-            catch (e) { setHistory(prev => [...prev, "Execution failed."]); }
+            catch (e) { console.error(e); setHistory(prev => [...prev, "Execution failed."]); }
         } else {
              setHistory(prev => [...prev, ...output.text]);
         }
@@ -139,25 +193,67 @@ const Terminal: React.FC = () => {
   }, [user, login, logout, getAuthHeader, vfs, currentPath, vfsActions, addToast, isJsRepl, prompt]);
 
   const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // ... (rest of keydown logic for Enter, Arrows, Ctrl+C etc. - largely unchanged)
     if (e.key === 'Enter') {
-        e.preventDefault();
-        const command = input.trim();
-        setInput('');
-  
-        if (isPasswordPrompt && loginAttempt) {
-          // ... password handling
-          return;
+      e.preventDefault();
+      const command = input.trim();
+      setInput('');
+
+      if (isPasswordPrompt && loginAttempt) {
+        const success = await login(loginAttempt.username, command, loginAttempt.turnstileToken!);
+        setIsPasswordPrompt(false);
+        setLoginAttempt(null);
+        setHistory(prev => [...prev, `Password: ****`]);
+        if (success) {
+            addToast(`Welcome, ${loginAttempt.username}!`, 'success');
+        } else {
+            addToast('Login failed.', 'error');
         }
-        
-        // Don't add to shell history if in JS REPL, but do add to display history
+        return;
+      }
+      
+      const fullCommand = `${prompt}${command}`;
+      if (!isJsRepl) {
+        setHistory(prev => [...prev, fullCommand]);
+      }
+      
+      if (command || isJsRepl) {
         if (!isJsRepl && command && command !== commandHistory[0]) {
             setCommandHistory(prev => [command, ...prev].slice(0, 50));
         }
         setHistoryIndex(-1);
         await handleCommandExecution(command);
       }
-    // ...
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!isJsRepl && commandHistory.length > 0) {
+        const newIndex = Math.min(commandHistory.length - 1, historyIndex + 1);
+        setHistoryIndex(newIndex);
+        setInput(commandHistory[newIndex] || '');
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isJsRepl && historyIndex >= 0) {
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setInput(newIndex >= 0 ? commandHistory[newIndex] : '');
+      }
+    } else if (e.key === 'c' && e.ctrlKey) {
+      e.preventDefault();
+      if (activeIntervalId) {
+        clearInterval(activeIntervalId);
+        setActiveIntervalId(null);
+        setHistory(prev => [...prev, `${prompt}${input}`, `^C<br/>Watch command terminated.`]);
+      } else if (isJsRepl) {
+        setIsJsRepl(false);
+        setHistory(prev => [...prev, `${prompt}${input}`, '^C<br/>Exiting JavaScript REPL.']);
+      } else {
+        setHistory(prev => [...prev, `${prompt}${input}`, `^C`]);
+      }
+      setInput('');
+    } else if (e.key === 'l' && e.ctrlKey) {
+        e.preventDefault();
+        setHistory([]);
+    }
   };
   
   const handleTerminalClick = () => {
