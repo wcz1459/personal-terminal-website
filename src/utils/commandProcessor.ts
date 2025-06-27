@@ -1,5 +1,6 @@
 import figlet from 'figlet';
 import { sha256 } from 'js-sha256';
+import { bootSequence } from './boot';
 
 // --- API Response Type Interfaces ---
 interface UserResponse { message?: string; error?: string; success?: boolean; }
