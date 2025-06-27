@@ -1,6 +1,6 @@
 import { Hono, Context, Next } from 'hono';
 import { cors } from 'hono/cors';
-import { sign, verify } from 'hono/jwt';
+import { sign, verify, JWTPayload } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
 // --- Type Definitions ---
@@ -14,14 +14,15 @@ type Bindings = {
   GEMINI_API_KEY: string;
 };
 
-interface DecodedJwtPayload {
+// This interface extends the base JWTPayload to include our custom fields.
+// This solves the type incompatibility issue between our custom payload and hono/jwt functions.
+interface DecodedJwtPayload extends JWTPayload {
     sub: number;
     username: string;
     role: 'admin' | 'guest';
-    exp: number;
 }
 
-// This is the core context type we will use throughout the app
+// This is the core context type we will use throughout the app to ensure type safety.
 type AppContext = Context<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>;
 
 interface TurnstileResponse {
@@ -45,7 +46,9 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    const decodedPayload = await verify(token, c.env.JWT_SECRET) as DecodedJwtPayload;
+    // We first cast to 'unknown' then to our specific type. This is a safe way
+    // to tell TypeScript that we know what the payload structure will be.
+    const decodedPayload = await verify(token, c.env.JWT_SECRET) as unknown as DecodedJwtPayload;
     c.set('user', decodedPayload);
     await next();
   } catch (e) {
@@ -83,7 +86,7 @@ app.post('/api/login', async (c) => {
   
   const payload: DecodedJwtPayload = { 
     sub: user.id, username: user.username, role: user.role, 
-    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
+    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 hours expiration
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
@@ -92,8 +95,8 @@ app.post('/api/login', async (c) => {
 
 // --- ADMIN ROUTES ---
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
-adminRoutes.use('*', authMiddleware); // First, ensure user is logged in
-adminRoutes.use('*', async (c: AppContext, next: Next) => { // Then, check if user is admin
+adminRoutes.use('*', authMiddleware);
+adminRoutes.use('*', async (c: AppContext, next: Next) => {
     const user = c.get('user');
     if (user.role !== 'admin') return c.json({ error: 'Forbidden: Admin access required' }, 403);
     await next();
@@ -165,24 +168,24 @@ app.route('/api/vfs', vfsRoutes);
 
 // --- API PROXIES & HELPERS (Publicly accessible) ---
 const NETEASE_API_BASE = 'https://netease-cloud-music-api-nine-delta-39.vercel.app';
-app.get('/api/music/search/:keywords', async (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
-app.get('/api/music/url/:id', async (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
-app.get('/api/music/detail/:id', async (c) => fetch(`${NETEASE_API_BASE}/song/detail?ids=${c.req.param('id')}`));
-app.get('/api/video/search/:keywords', async (c) => fetch(`https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${c.req.param('keywords')}`, { headers: { 'User-Agent': 'Mozilla/5.0' }}));
-app.get('/api/hitokoto', async () => fetch('https://v1.hitokoto.cn/?c=a&c=b&c=c&c=d'));
-app.get('/api/devjoke', async () => fetch('https://backend-omega-seven.vercel.app/api/getjoke'));
-app.get('/api/weather/:city', async(c) => fetch(`https://wttr.in/${c.req.param('city')}?format=3`));
-app.get('/api/curl', async (c) => fetch(c.req.query('url') || ''));
-app.get('/api/dns/:domain', async(c) => fetch(`https://cloudflare-dns.com/dns-query?name=${c.req.param('domain')}&type=A`, { headers: {'accept': 'application/dns-json'} }));
-app.get('/api/isdown', async(c) => fetch(`https://downforeveryoneorjustme.com/v2/isitdown?host=${c.req.query('url')}`));
+app.get('/api/music/search/:keywords', (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
+app.get('/api/music/url/:id', (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
+app.get('/api/music/detail/:id', (c) => fetch(`${NETEASE_API_BASE}/song/detail?ids=${c.req.param('id')}`));
+app.get('/api/video/search/:keywords', (c) => fetch(`https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${c.req.param('keywords')}`, { headers: { 'User-Agent': 'Mozilla/5.0' }}));
+app.get('/api/hitokoto', () => fetch('https://v1.hitokoto.cn/?c=a&c=b&c=c&c=d'));
+app.get('/api/devjoke', () => fetch('https://backend-omega-seven.vercel.app/api/getjoke'));
+app.get('/api/weather/:city', (c) => fetch(`https://wttr.in/${c.req.param('city')}?format=3`));
+app.get('/api/curl', (c) => fetch(c.req.query('url') || ''));
+app.get('/api/dns/:domain', (c) => fetch(`https://cloudflare-dns.com/dns-query?name=${c.req.param('domain')}&type=A`, { headers: {'accept': 'application/dns-json'} }));
+app.get('/api/isdown', (c) => fetch(`https://downforeveryoneorjustme.com/v2/isitdown?host=${c.req.query('url')}`));
 app.get('/api/geoip', async (c) => {
     const ip = c.req.query('ip') || c.req.header('CF-Connecting-IP');
     const res = await fetch(`https://ipapi.co/${ip}/json/`);
     const data = await res.json() as GeoIPApiResponse;
     return c.json(data);
 });
-app.get('/api/github/:username', async(c) => fetch(`https://api.github.com/users/${c.req.param('username')}`, { headers: {'User-Agent': 'Cloudflare-Worker'} }));
-app.get('/api/npm/:package', async(c) => fetch(`https://registry.npmjs.org/${c.req.param('package')}`));
+app.get('/api/github/:username', (c) => fetch(`https://api.github.com/users/${c.req.param('username')}`, { headers: {'User-Agent': 'Cloudflare-Worker'} }));
+app.get('/api/npm/:package', (c) => fetch(`https://registry.npmjs.org/${c.req.param('package')}`));
 
 
 // --- PROTECTED ROUTES ---
@@ -198,9 +201,11 @@ app.post('/api/ai', authMiddleware, async (c: AppContext) => {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
         });
-        if (!response.ok) { return c.json({ error: `Gemini API error: ${response.statusText}` }, response.status); }
+        if (!response.ok) { 
+            return c.json({ error: `Gemini API error: ${response.statusText}` }, { status: response.status }); 
+        }
         const data = await response.json();
-        // @ts-ignore
+        // @ts-ignore - This is a reasonable use case for ts-ignore as Gemini's type can be complex
         const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
         return c.json({ response: aiResponse });
     } catch (error) {
@@ -233,6 +238,7 @@ app.get('/s/:key', async (c) => {
 
 
 // --- FINAL EXPORT ---
+// This is the required export for Cloudflare Pages Functions
 export const onRequest: PagesFunction<Bindings> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
