@@ -1,4 +1,5 @@
 import { Hono, Context, Next } from 'hono';
+import { handle } from 'hono/cloudflare-pages'; // <--- 新增导入
 import { cors } from 'hono/cors';
 import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
@@ -97,8 +98,6 @@ app.post('/api/login', async (c) => {
 
 
 // --- ADMIN ROUTES, VFS ROUTES, API PROXIES ---
-// The logic within these routes remains unchanged as the core issue was the type definition.
-// I am providing the full code to prevent any further issues.
 
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 adminRoutes.use('*', authMiddleware);
@@ -236,6 +235,12 @@ app.get('/s/:key', async (c) => {
     return c.text('URL not found', 404);
 });
 
-export const onRequest: PagesFunction<Bindings> = (context) => {
-  return app.fetch(context.request, context.env, context);
-};
+// <--- 修复的部分 ---
+// 之前的方式:
+// export const onRequest: PagesFunction<Bindings> = (context) => {
+//   return app.fetch(context.request, context.env, context); // <- 这里导致了类型错误
+// };
+//
+// 修复后的方式:
+// 使用 Hono 为 Cloudflare Pages 提供的官方适配器，它能正确处理 context 类型。
+export const onRequest = handle(app);
