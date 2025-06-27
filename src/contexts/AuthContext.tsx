@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 
 interface User {
   username: string;
@@ -11,6 +11,12 @@ interface AuthContextType {
   login: (username: string, password: string, turnstileToken: string) => Promise<boolean>;
   logout: () => void;
   getAuthHeader: () => { Authorization: string };
+}
+
+// Added for type safety
+interface LoginResponse {
+  token: string;
+  user: User;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,7 +49,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return false;
       }
 
-      const data = await response.json();
+      const data = await response.json() as LoginResponse; // <--- 修改点
+      
       setToken(data.token);
       setUser(data.user);
       localStorage.setItem('token', data.token);

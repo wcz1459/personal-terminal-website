@@ -24,7 +24,7 @@ const Terminal: React.FC = () => {
   const [isBooting, setIsBooting] = useState(true);
   const [isPasswordPrompt, setIsPasswordPrompt] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState<{ username: string; turnstileToken: string | null } | null>(null);
-  const [activeIntervalId, setActiveIntervalId] = useState<NodeJS.Timeout | null>(null);
+  const [activeIntervalId, setActiveIntervalId] = useState<number | null>(null); // <--- 修改点
   
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [currentSong, setCurrentSong] = useState<{name: string, artist: string} | null>(null);
@@ -99,7 +99,7 @@ const Terminal: React.FC = () => {
     const terminalController = {
         clearScreen: () => setHistory([]),
         pushToHistory: (lines: string[]) => setHistory(prev => [...prev, ...lines]),
-        setActiveInterval: (id: NodeJS.Timeout | null) => setActiveIntervalId(id),
+        setActiveInterval: (id: number | null) => setActiveIntervalId(id), // <--- 修改点
         setAudioSrc: (src: string | null, songInfo: {name: string, artist: string} | null) => {
             setAudioSrc(src);
             setCurrentSong(songInfo);

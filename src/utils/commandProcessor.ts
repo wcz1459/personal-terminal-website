@@ -1,3 +1,53 @@
+// --- API Response Type Interfaces ---
+interface UserResponse {
+    message?: string;
+    error?: string;
+    success?: boolean;
+}
+
+interface AiResponse {
+    response?: string;
+    error?: string;
+}
+
+interface MusicSearchSong {
+    id: number;
+    name: string;
+    ar: { name: string }[];
+}
+interface MusicSearchResult {
+    code: number;
+    result?: {
+        songs: MusicSearchSong[];
+    };
+}
+
+interface MusicUrlResult {
+    data?: { url: string }[];
+}
+
+interface MusicDetailResult {
+    songs?: { name: string; ar: { name: string }[] }[];
+}
+
+interface BiliVideo {
+    bvid: string;
+    title: string;
+    author: string;
+    duration: string;
+}
+interface BiliSearchResult {
+    code: number;
+    data?: {
+        result: { type: string; data: BiliVideo[] }[];
+    };
+}
+
+interface HitokotoResponse {
+    hitokoto: string;
+    from: string;
+}
+
 // --- VFS Helper Functions ---
 const resolvePath = (path: string, currentPath: string): string => {
     if (path.startsWith('/')) return path === '/' ? '~' : path;
@@ -7,7 +57,7 @@ const resolvePath = (path: string, currentPath: string): string => {
     const newPathParts: string[] = [];
   
     for (const part of parts) {
-      if (part === '..' || part === '..') {
+      if (part === '..') {
         newPathParts.pop();
       } else if (part !== '.' && part !== '') {
         newPathParts.push(part);
@@ -19,6 +69,7 @@ const resolvePath = (path: string, currentPath: string): string => {
   
 const getObjectByPath = (obj: any, path: string): any => {
     if (path === '~') return obj['~'];
+    if (!path.startsWith('/')) return undefined; // Should not happen with resolvePath
     const parts = path.substring(1).split('/');
     let current = obj['~'];
     for (const part of parts) {
@@ -31,7 +82,7 @@ const getObjectByPath = (obj: any, path: string): any => {
 };
 
 const setObjectByPath = (obj: any, path: string, value: any): boolean => {
-    if (path === '~') return false; // Cannot modify root
+    if (path === '~' || !path.startsWith('/')) return false; 
     const parts = path.substring(1).split('/');
     const fileName = parts.pop();
     if (!fileName) return false;
@@ -39,7 +90,7 @@ const setObjectByPath = (obj: any, path: string, value: any): boolean => {
     let parent = obj['~'];
     for (const part of parts) {
         if (typeof parent[part] !== 'object' || parent[part] === null) {
-            return false; // Parent path does not exist or is not a directory
+            return false;
         }
         parent = parent[part];
     }
@@ -48,7 +99,7 @@ const setObjectByPath = (obj: any, path: string, value: any): boolean => {
 };
 
 const deleteObjectByPath = (obj: any, path: string): boolean => {
-    if (path === '~') return false;
+    if (path === '~' || !path.startsWith('/')) return false;
     const parts = path.substring(1).split('/');
     const fileName = parts.pop();
     if (!fileName) return false;
@@ -106,9 +157,9 @@ export const processCommand = async (
                 headers: { ...auth.getAuthHeader(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: targetUser, newPassword }),
             });
-            const data = await res.json();
+            const data = await res.json() as UserResponse;
             if (data.success) addToast(`Password for ${targetUser} changed.`, 'success');
-            return [data.message || data.error];
+            return [data.message || data.error || 'Unknown response from server.'];
         },
         useradd: async (args) => {
             const [username, password, role] = args;
@@ -118,8 +169,8 @@ export const processCommand = async (
                 headers: {...auth.getAuthHeader(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({username, password, role}),
             });
-            const data = await res.json();
-            return [data.message || data.error];
+            const data = await res.json() as UserResponse;
+            return [data.message || data.error || 'Unknown response from server.'];
         },
         userdel: async (args) => {
             const [username] = args;
@@ -129,8 +180,8 @@ export const processCommand = async (
                 headers: {...auth.getAuthHeader(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({username}),
             });
-            const data = await res.json();
-            return [data.message || data.error];
+            const data = await res.json() as UserResponse;
+            return [data.message || data.error || 'Unknown response from server.'];
         },
         sudo: async (args) => {
             if (auth.user?.role !== 'admin') {
@@ -211,9 +262,9 @@ export const processCommand = async (
                 headers: { 'Content-Type': 'application/json', ...auth.getAuthHeader() },
                 body: JSON.stringify({ prompt }),
             });
-            const data = await res.json();
+            const data = await res.json() as AiResponse;
             if (data.error) return [`AI Error: ${data.error}`];
-            return data.response.split('\n');
+            return data.response?.split('\n') || ['AI returned no response.'];
         },
         music: async (args) => {
             const subCommand = args[0];
@@ -225,7 +276,7 @@ export const processCommand = async (
                     if (!query) return ['Usage: music search <keywords>'];
                     addToast(`Searching for: ${query}`, 'info');
                     const searchRes = await fetch(`/api/music/search/${encodeURIComponent(query)}`);
-                    const searchData = await searchRes.json();
+                    const searchData = await searchRes.json() as MusicSearchResult;
                     if (searchData.code !== 200 || !searchData.result?.songs) return ['Search failed or no results.'];
                     const songs = searchData.result.songs.slice(0, 10).map(song => `[ID: <span style="color:var(--cyan);">${song.id}</span>]  ${song.name} - ${song.ar.map(a => a.name).join('/')}`);
                     return ['Search Results:', ...songs];
@@ -235,12 +286,12 @@ export const processCommand = async (
                     if (!songId) return ['Usage: music play <ID>'];
                     addToast('Fetching song...', 'info');
                     const urlRes = await fetch(`/api/music/url/${songId}`);
-                    const urlData = await urlRes.json();
+                    const urlData = await urlRes.json() as MusicUrlResult;
                     const songUrl = urlData.data?.[0]?.url;
                     if (!songUrl) return ['Could not get URL. Song may be VIP or unavailable.'];
                     
                     const detailRes = await fetch(`/api/music/detail/${songId}`);
-                    const detailData = await detailRes.json();
+                    const detailData = await detailRes.json() as MusicDetailResult;
                     const songInfo = detailData.songs?.[0];
                     const songDetails = { name: songInfo?.name || 'Unknown', artist: songInfo?.ar.map(a => a.name).join('/') || 'Unknown' };
 
@@ -259,7 +310,7 @@ export const processCommand = async (
             const query = args.slice(1).join(' ');
             addToast(`Searching Bilibili for: ${query}`, 'info');
             const res = await fetch(`/api/video/search/${encodeURIComponent(query)}`);
-            const data = await res.json();
+            const data = await res.json() as BiliSearchResult;
             if (data.code !== 0 || !data.data?.result) return ['Search failed or no results.'];
             
             const videos = data.data.result.filter(r => r.type === 'video');
@@ -324,26 +375,22 @@ export const processCommand = async (
                 terminalController.clearScreen();
                 const header = `Every ${intervalSeconds.toFixed(1)}s: ${commandToRun}     Count: ${executions+1}/${count === Infinity ? '∞' : count}     [${new Date().toLocaleString()}]`;
                 terminalController.pushToHistory([header, '']);
-                const fakeController = { clearScreen: () => {}, pushToHistory: () => {}, setActiveInterval: () => {} };
+                const fakeController = { clearScreen: () => {}, pushToHistory: () => {}, setActiveInterval: () => {}, setAudioSrc: () => {}, changeTheme: () => {} };
                 const result = await processCommand(commandToRun, auth, vfsContext, addToast, fakeController);
                 terminalController.pushToHistory(result.text.length > 0 ? result.text : ['(Command produced no output)']);
             };
-
-            const runInterval = async () => {
+            
+            const intervalId = setInterval(async () => {
+                executions++;
                 if (executions >= count) {
                     clearInterval(intervalId);
                     terminalController.setActiveInterval(null);
-                    return;
                 }
-                executions++;
                 await execute();
-            };
-            
-            await runInterval();
-            if (executions >= count) return [];
+            }, intervalSeconds * 1000);
 
-            const intervalId = setInterval(runInterval, intervalSeconds * 1000);
             terminalController.setActiveInterval(intervalId);
+            await execute(); // run once immediately
             return [];
         },
         
@@ -376,13 +423,13 @@ export const processCommand = async (
         neofetch: () => [
             '<pre style="color:var(--cyan);">',
             '      .--.         ',
-            '     |o_o |        <span style="color:var(--text-color);"><b>user@codex.me</b></span>',
+            '     |o_o |        <span style="color:var(--text-color);"><b>' + (auth.user?.username || 'guest') + '@codex.me</b></span>',
             '     |:_/ |        ',
-            '    //   \\ \\       OS: CloudflareOS x86_64',
-            '   (|     | )      Host: Cloudflare Pages',
-            '  /`\\_   _/`\\      Kernel: D1/KV/R2',
-            '  \\___)=(___/      Shell: web-zsh 1.0',
-            '                   Theme: ' + (localStorage.getItem('terminal-theme') || 'dracula'),
+            '    //   \\ \\       <span style="color:var(--text-color);">OS: CloudflareOS x86_64</span>',
+            '   (|     | )      <span style="color:var(--text-color);">Host: Cloudflare Pages</span>',
+            '  /`\\_   _/`\\      <span style="color:var(--text-color);">Kernel: D1/KV/R2</span>',
+            '  \\___)=(___/      <span style="color:var(--text-color);">Shell: web-zsh 1.0</span>',
+            '                   <span style="color:var(--text-color);">Theme: ' + (localStorage.getItem('terminal-theme') || 'dracula') + '</span>',
             '</pre>',
         ],
         cowsay: (args) => {
@@ -390,7 +437,7 @@ export const processCommand = async (
             const textWidth = text.length;
             return [
                 ' ' + '_'.repeat(textWidth + 2),
-                `< ${text} >`,
+                `&lt; ${text} &gt;`,
                 ' ' + '-'.repeat(textWidth + 2),
                 '        \\   ^__^',
                 '         \\  (oo)\\_______',
@@ -401,7 +448,7 @@ export const processCommand = async (
         },
         hitokoto: async () => {
             const res = await fetch('/api/hitokoto');
-            const data = await res.json();
+            const data = await res.json() as HitokotoResponse;
             return [`${data.hitokoto}  -- ${data.from}`];
         },
         rickroll: () => [`window.open("https://www.bilibili.com/video/BV1GJ411x7h7", "_blank");`],
