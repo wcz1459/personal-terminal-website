@@ -3,8 +3,6 @@ import { cors } from 'hono/cors';
 import { sign, verify, JWTPayload } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
-// --- Type Definitions ---
-
 type Bindings = {
   DB: D1Database;
   SITE_KV: KVNamespace;
@@ -14,15 +12,12 @@ type Bindings = {
   GEMINI_API_KEY: string;
 };
 
-// This interface extends the base JWTPayload to include our custom fields.
-// This solves the type incompatibility issue between our custom payload and hono/jwt functions.
 interface DecodedJwtPayload extends JWTPayload {
     sub: number;
     username: string;
     role: 'admin' | 'guest';
 }
 
-// This is the core context type we will use throughout the app to ensure type safety.
 type AppContext = Context<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>;
 
 interface TurnstileResponse {
@@ -34,9 +29,6 @@ interface GeoIPApiResponse {
 
 const app = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
 
-
-// --- Middleware ---
-
 app.use('/api/*', cors());
 
 const authMiddleware = async (c: AppContext, next: Next) => {
@@ -46,8 +38,6 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    // We first cast to 'unknown' then to our specific type. This is a safe way
-    // to tell TypeScript that we know what the payload structure will be.
     const decodedPayload = await verify(token, c.env.JWT_SECRET) as unknown as DecodedJwtPayload;
     c.set('user', decodedPayload);
     await next();
@@ -56,21 +46,16 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
 };
 
-
-// --- PUBLIC ROUTES ---
-
 app.post('/api/login', async (c) => {
   const { username, password, turnstileToken } = await c.req.json();
   if (!username || !password || !turnstileToken) {
     return c.json({ error: 'Missing required fields' }, 400);
   }
-
   const ip = c.req.header('CF-Connecting-IP');
   const formData = new FormData();
   formData.append('secret', c.env.TURNSTILE_SECRET_KEY);
   formData.append('response', turnstileToken);
   if (ip) formData.append('remoteip', ip);
-
   const turnstileResult = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
     method: 'POST', body: formData,
   });
@@ -78,22 +63,18 @@ app.post('/api/login', async (c) => {
   if (!outcome.success) {
     return c.json({ error: 'Bot verification failed.' }, 403);
   }
-
   const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first<{ id: number; username: string; password_hash: string; role: 'admin' | 'guest' }>();
   if (!user || !compareSync(password, user.password_hash)) {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
-  
   const payload: DecodedJwtPayload = { 
     sub: user.id, username: user.username, role: user.role, 
-    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 hours expiration
+    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
 });
 
-
-// --- ADMIN ROUTES ---
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
 adminRoutes.use('*', authMiddleware);
 adminRoutes.use('*', async (c: AppContext, next: Next) => {
@@ -101,7 +82,6 @@ adminRoutes.use('*', async (c: AppContext, next: Next) => {
     if (user.role !== 'admin') return c.json({ error: 'Forbidden: Admin access required' }, 403);
     await next();
 });
-
 adminRoutes.post('/useradd', async (c: AppContext) => {
     const { username, password, role } = await c.req.json();
     if (!username || !password || !['admin', 'guest'].includes(role)) return c.json({ error: 'Invalid parameters' }, 400);
@@ -141,8 +121,6 @@ adminRoutes.post('/passwd', async (c: AppContext) => {
 });
 app.route('/api/admin', adminRoutes);
 
-
-// --- VFS Routes ---
 const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
 vfsRoutes.use('*', authMiddleware);
 vfsRoutes.get('/', async (c: AppContext) => {
@@ -165,8 +143,6 @@ vfsRoutes.post('/', async (c: AppContext) => {
 });
 app.route('/api/vfs', vfsRoutes);
 
-
-// --- API PROXIES & HELPERS (Publicly accessible) ---
 const NETEASE_API_BASE = 'https://netease-cloud-music-api-nine-delta-39.vercel.app';
 app.get('/api/music/search/:keywords', (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
 app.get('/api/music/url/:id', (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
@@ -187,8 +163,6 @@ app.get('/api/geoip', async (c) => {
 app.get('/api/github/:username', (c) => fetch(`https://api.github.com/users/${c.req.param('username')}`, { headers: {'User-Agent': 'Cloudflare-Worker'} }));
 app.get('/api/npm/:package', (c) => fetch(`https://registry.npmjs.org/${c.req.param('package')}`));
 
-
-// --- PROTECTED ROUTES ---
 app.post('/api/ai', authMiddleware, async (c: AppContext) => {
     const { prompt } = await c.req.json<{ prompt: string }>();
     if (!prompt) return c.json({ error: 'Prompt is required' }, 400);
@@ -205,7 +179,7 @@ app.post('/api/ai', authMiddleware, async (c: AppContext) => {
             return c.json({ error: `Gemini API error: ${response.statusText}` }, { status: response.status }); 
         }
         const data = await response.json();
-        // @ts-ignore - This is a reasonable use case for ts-ignore as Gemini's type can be complex
+        // @ts-ignore
         const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
         return c.json({ response: aiResponse });
     } catch (error) {
@@ -216,7 +190,7 @@ app.post('/api/shorten', authMiddleware, async(c: AppContext) => {
     const { url } = await c.req.json<{ url: string }>();
     if (!url) return c.json({ error: 'URL is required.' }, 400);
     const key = Math.random().toString(36).substring(2, 8);
-    await c.env.SITE_KV.put(`short_${key}`, url, { expirationTtl: 60 * 60 * 24 * 30 }); // 30 day expiry
+    await c.env.SITE_KV.put(`short_${key}`, url, { expirationTtl: 60 * 60 * 24 * 30 });
     const shortUrl = `${new URL(c.req.url).origin}/s/${key}`;
     return c.json({ short_url: shortUrl });
 });
@@ -227,8 +201,6 @@ app.get('/api/unshorten/:key', authMiddleware, async(c: AppContext) => {
     return c.json({ long_url: longUrl });
 });
 
-
-// --- PUBLIC REDIRECTOR ---
 app.get('/s/:key', async (c) => {
     const key = c.req.param('key');
     const url = await c.env.SITE_KV.get(`short_${key}`);
@@ -236,9 +208,6 @@ app.get('/s/:key', async (c) => {
     return c.text('URL not found', 404);
 });
 
-
-// --- FINAL EXPORT ---
-// This is the required export for Cloudflare Pages Functions
 export const onRequest: PagesFunction<Bindings> = (context) => {
-  return app.fetch(context.request, context.env, context);
+  return app.fetch(context.request, context.env, context.waitUntil);
 };
