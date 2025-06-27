@@ -5,9 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Terminal Website</title>
-    <!-- The Turnstile script will be loaded dynamically by the component -->
     <script>
-      // This helps prevent FOUC (Flash of Unstyled Content) for the terminal theme
       const savedTheme = localStorage.getItem('terminal-theme') || 'dracula';
       document.documentElement.setAttribute('data-theme', savedTheme);
     </script>

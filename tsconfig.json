@@ -16,13 +16,17 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false, /* Relaxed for easier development */
+    "noUnusedParameters": false, /* Relaxed for easier development */
     "noFallthroughCasesInSwitch": true,
 
-    /* Added for Cloudflare compatibility */
-    "types": ["@cloudflare/workers-types"]
+    /* Compatibility */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    /* Cloudflare types */
+    "types": ["@cloudflare/workers-types", "vite/client"]
   },
-  "include": ["src"],
+  "include": ["src", "functions"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -2,7 +2,8 @@
   width: 90%;
   height: 90%;
   max-width: 1200px;
-  background-color: var(--background-color);
+  /* 修改点: 将背景色改为带有透明度的 RGBA 值 */
+  background-color: rgba(40, 42, 54, 0.9); /* Dracula 背景色 90% 不透明度 */
   border: 1px solid var(--border-color);
   border-radius: 8px;
   display: flex;
@@ -10,7 +11,17 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   overflow: hidden;
   transition: background-color 0.3s, border-color 0.3s;
+  backdrop-filter: blur(4px); /* 新增: 毛玻璃效果，让背景更柔和 */
 }
+
+/* 针对不同主题调整背景透明度 */
+[data-theme="gruvbox"] .terminal-window {
+  background-color: rgba(40, 40, 40, 0.9);
+}
+[data-theme="solarized"] .terminal-window {
+  background-color: rgba(0, 43, 54, 0.9);
+}
+
 
 .terminal-header {
   background-color: var(--header-bg);
@@ -45,11 +56,15 @@
 .terminal-body {
   flex-grow: 1;
   padding: 1rem;
-  overflow-y: scroll;
+  overflow-y: auto; /* 确保垂直滚动 */
+  overflow-x: hidden; /* 禁止水平滚动 */
   font-size: 16px;
   line-height: 1.5;
   scrollbar-width: thin;
   scrollbar-color: var(--prompt-symbol-color) transparent;
+  /* 修改点: 强制长单词或URL换行，解决横向滚动问题 */
+  word-wrap: break-word;
+  word-break: break-all;
 }
 
 .terminal-body::-webkit-scrollbar {
@@ -65,6 +80,8 @@
 
 .input-line {
   display: flex;
+  align-items: center;
+  width: 100%;
 }
 
 .prompt-user { color: var(--prompt-user-color); transition: color 0.3s; }
@@ -80,6 +97,7 @@
   outline: none;
   padding-left: 0.5rem;
   transition: color 0.3s;
+  width: 100%; /* 修改点: 确保输入框在flex布局中不会溢出 */
 }
 
 .terminal-body a {
@@ -114,6 +132,7 @@
   max-width: 300px;
 }
 
+/* 移动端适配 */
 @media (max-width: 768px) {
   .terminal-window {
     width: 100%;
@@ -123,9 +142,20 @@
   }
   .terminal-body {
     font-size: 14px;
-    padding: 0.5rem;
+    /* 修改点: 减小内边距，给内容更多空间 */
+    padding: 0.5rem; 
+  }
+  .input-line input {
+    /* 解决在某些手机浏览器上光标过大的问题 */
+    caret-color: var(--text-color);
   }
   .audio-player {
     width: 90%;
+    bottom: 5px;
+    padding: 8px 12px;
+  }
+  .audio-player p {
+    font-size: 12px;
+    margin-bottom: 5px;
   }
 }

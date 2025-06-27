@@ -7,16 +7,20 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "deploy": "wrangler pages deploy dist"
+    "pages:dev": "wrangler pages dev --compatibility-date=2024-03-20 --proxy 3000 -- npm run dev",
+    "pages:deploy": "npm run build && wrangler pages deploy dist"
   },
   "dependencies": {
     "bcrypt-ts": "^5.0.2",
+    "figlet": "^1.7.0",
     "hono": "^4.4.7",
+    "js-sha256": "^0.11.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240512.0",
+    "@types/figlet": "^1.5.8",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
