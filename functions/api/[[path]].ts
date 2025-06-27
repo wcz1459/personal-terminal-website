@@ -1,8 +1,9 @@
 import { Hono, Context, Next } from 'hono';
 import { cors } from 'hono/cors';
-import { sign, verify, JWTPayload } from 'hono/jwt';
+import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
+// --- Type Definitions ---
 type Bindings = {
   DB: D1Database;
   SITE_KV: KVNamespace;
@@ -12,13 +13,19 @@ type Bindings = {
   GEMINI_API_KEY: string;
 };
 
-interface DecodedJwtPayload extends JWTPayload {
+// This is our custom data that we will embed in the JWT payload
+interface UserPayload {
     sub: number;
     username: string;
     role: 'admin' | 'guest';
 }
 
-type AppContext = Context<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>;
+// This type will be set on the Hono context after verification
+interface VerifiedUser extends UserPayload {
+    exp: number;
+}
+
+type AppContext = Context<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>;
 
 interface TurnstileResponse {
   success: boolean;
@@ -27,8 +34,9 @@ interface GeoIPApiResponse {
   city: string; country: string; continent: string;
 }
 
-const app = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
+const app = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 
+// --- Middleware ---
 app.use('/api/*', cors());
 
 const authMiddleware = async (c: AppContext, next: Next) => {
@@ -38,24 +46,35 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    const decodedPayload = await verify(token, c.env.JWT_SECRET) as unknown as DecodedJwtPayload;
-    c.set('user', decodedPayload);
+    // `verify` returns a generic payload. We then manually construct our typed user object.
+    const payload = await verify(token, c.env.JWT_SECRET);
+    const user: VerifiedUser = {
+        sub: payload.sub as number,
+        username: payload.username as string,
+        role: payload.role as 'admin' | 'guest',
+        exp: payload.exp as number
+    };
+    c.set('user', user);
     await next();
   } catch (e) {
     return c.json({ error: 'Unauthorized: Invalid token' }, 401);
   }
 };
 
+
+// --- PUBLIC ROUTES ---
 app.post('/api/login', async (c) => {
   const { username, password, turnstileToken } = await c.req.json();
   if (!username || !password || !turnstileToken) {
     return c.json({ error: 'Missing required fields' }, 400);
   }
+
   const ip = c.req.header('CF-Connecting-IP');
   const formData = new FormData();
   formData.append('secret', c.env.TURNSTILE_SECRET_KEY);
   formData.append('response', turnstileToken);
   if (ip) formData.append('remoteip', ip);
+
   const turnstileResult = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
     method: 'POST', body: formData,
   });
@@ -63,19 +82,28 @@ app.post('/api/login', async (c) => {
   if (!outcome.success) {
     return c.json({ error: 'Bot verification failed.' }, 403);
   }
+
   const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first<{ id: number; username: string; password_hash: string; role: 'admin' | 'guest' }>();
   if (!user || !compareSync(password, user.password_hash)) {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
-  const payload: DecodedJwtPayload = { 
-    sub: user.id, username: user.username, role: user.role, 
+  
+  // The payload for `sign` can be a simple object with our custom data.
+  const payload = { 
+    sub: user.id,
+    username: user.username,
+    role: user.role, 
     exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
 });
 
-const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
+// --- ADMIN ROUTES, VFS ROUTES, API PROXIES ---
+// The logic within these routes remains unchanged as the core issue was the type definition.
+// I am providing the full code to prevent any further issues.
+
+const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 adminRoutes.use('*', authMiddleware);
 adminRoutes.use('*', async (c: AppContext, next: Next) => {
     const user = c.get('user');
@@ -121,7 +149,7 @@ adminRoutes.post('/passwd', async (c: AppContext) => {
 });
 app.route('/api/admin', adminRoutes);
 
-const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
+const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 vfsRoutes.use('*', authMiddleware);
 vfsRoutes.get('/', async (c: AppContext) => {
   const user = c.get('user');
@@ -176,7 +204,7 @@ app.post('/api/ai', authMiddleware, async (c: AppContext) => {
             body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
         });
         if (!response.ok) { 
-            return c.json({ error: `Gemini API error: ${response.statusText}` }, { status: response.status }); 
+            return c.json({ error: `Gemini API error: ${response.statusText}` }, { status: response.status });
         }
         const data = await response.json();
         // @ts-ignore
