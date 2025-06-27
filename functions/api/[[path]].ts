@@ -20,9 +20,10 @@ interface UserPayload {
     role: 'admin' | 'guest';
 }
 
-// This type will be set on the Hono context after verification
+// This type represents the verified data we get back and set on the context.
 interface VerifiedUser extends UserPayload {
     exp: number;
+    iat: number;
 }
 
 type AppContext = Context<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>;
@@ -35,6 +36,7 @@ interface GeoIPApiResponse {
 }
 
 const app = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
+
 
 // --- Middleware ---
 app.use('/api/*', cors());
@@ -52,7 +54,8 @@ const authMiddleware = async (c: AppContext, next: Next) => {
         sub: payload.sub as number,
         username: payload.username as string,
         role: payload.role as 'admin' | 'guest',
-        exp: payload.exp as number
+        exp: payload.exp as number,
+        iat: payload.iat as number
     };
     c.set('user', user);
     await next();
@@ -88,21 +91,17 @@ app.post('/api/login', async (c) => {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
   
-  // The payload for `sign` can be a simple object with our custom data.
+  // The payload for `sign` is a plain object.
   const payload = { 
-    sub: user.id,
-    username: user.username,
-    role: user.role, 
+    sub: user.id, username: user.username, role: user.role, 
     exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
 });
 
-// --- ADMIN ROUTES, VFS ROUTES, API PROXIES ---
-// The logic within these routes remains unchanged as the core issue was the type definition.
-// I am providing the full code to prevent any further issues.
 
+// --- ADMIN ROUTES ---
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 adminRoutes.use('*', authMiddleware);
 adminRoutes.use('*', async (c: AppContext, next: Next) => {
@@ -149,6 +148,8 @@ adminRoutes.post('/passwd', async (c: AppContext) => {
 });
 app.route('/api/admin', adminRoutes);
 
+
+// --- VFS Routes ---
 const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 vfsRoutes.use('*', authMiddleware);
 vfsRoutes.get('/', async (c: AppContext) => {
@@ -171,6 +172,8 @@ vfsRoutes.post('/', async (c: AppContext) => {
 });
 app.route('/api/vfs', vfsRoutes);
 
+
+// --- API PROXIES & HELPERS ---
 const NETEASE_API_BASE = 'https://netease-cloud-music-api-nine-delta-39.vercel.app';
 app.get('/api/music/search/:keywords', (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
 app.get('/api/music/url/:id', (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
@@ -191,6 +194,8 @@ app.get('/api/geoip', async (c) => {
 app.get('/api/github/:username', (c) => fetch(`https://api.github.com/users/${c.req.param('username')}`, { headers: {'User-Agent': 'Cloudflare-Worker'} }));
 app.get('/api/npm/:package', (c) => fetch(`https://registry.npmjs.org/${c.req.param('package')}`));
 
+
+// --- PROTECTED ROUTES ---
 app.post('/api/ai', authMiddleware, async (c: AppContext) => {
     const { prompt } = await c.req.json<{ prompt: string }>();
     if (!prompt) return c.json({ error: 'Prompt is required' }, 400);
@@ -204,7 +209,10 @@ app.post('/api/ai', authMiddleware, async (c: AppContext) => {
             body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
         });
         if (!response.ok) { 
-            return c.json({ error: `Gemini API error: ${response.statusText}` }, { status: response.status });
+            return new Response(JSON.stringify({ error: `Gemini API error: ${response.statusText}` }), { 
+                status: response.status,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
         const data = await response.json();
         // @ts-ignore
@@ -229,6 +237,8 @@ app.get('/api/unshorten/:key', authMiddleware, async(c: AppContext) => {
     return c.json({ long_url: longUrl });
 });
 
+
+// --- PUBLIC REDIRECTOR ---
 app.get('/s/:key', async (c) => {
     const key = c.req.param('key');
     const url = await c.env.SITE_KV.get(`short_${key}`);
@@ -236,6 +246,8 @@ app.get('/s/:key', async (c) => {
     return c.text('URL not found', 404);
 });
 
+
+// --- FINAL EXPORT ---
 export const onRequest: PagesFunction<Bindings> = (context) => {
-  return app.fetch(context.request, context.env, context.waitUntil);
+  return app.fetch(context.request, context.env, context);
 };
