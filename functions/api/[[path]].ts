@@ -1,6 +1,6 @@
 import { Hono, Context, Next } from 'hono';
 import { cors } from 'hono/cors';
-import { sign, verify } from 'hono/jwt';
+import { sign, verify, JWTPayload } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
 // --- Type Definitions ---
@@ -102,7 +102,10 @@ app.post('/api/login', async (c) => {
 });
 
 
-// --- ADMIN ROUTES ---
+// --- ADMIN ROUTES, VFS ROUTES, API PROXIES ---
+// The logic within these routes remains unchanged as the core issue was the type definition.
+// I am providing the full code to prevent any further issues.
+
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 adminRoutes.use('*', authMiddleware);
 adminRoutes.use('*', async (c: AppContext, next: Next) => {
@@ -149,8 +152,6 @@ adminRoutes.post('/passwd', async (c: AppContext) => {
 });
 app.route('/api/admin', adminRoutes);
 
-
-// --- VFS Routes ---
 const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 vfsRoutes.use('*', authMiddleware);
 vfsRoutes.get('/', async (c: AppContext) => {
@@ -173,8 +174,6 @@ vfsRoutes.post('/', async (c: AppContext) => {
 });
 app.route('/api/vfs', vfsRoutes);
 
-
-// --- API PROXIES & HELPERS ---
 const NETEASE_API_BASE = 'https://netease-cloud-music-api-nine-delta-39.vercel.app';
 app.get('/api/music/search/:keywords', (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
 app.get('/api/music/url/:id', (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
@@ -195,8 +194,6 @@ app.get('/api/geoip', async (c) => {
 app.get('/api/github/:username', (c) => fetch(`https://api.github.com/users/${c.req.param('username')}`, { headers: {'User-Agent': 'Cloudflare-Worker'} }));
 app.get('/api/npm/:package', (c) => fetch(`https://registry.npmjs.org/${c.req.param('package')}`));
 
-
-// --- PROTECTED ROUTES ---
 app.post('/api/ai', authMiddleware, async (c: AppContext) => {
     const { prompt } = await c.req.json<{ prompt: string }>();
     if (!prompt) return c.json({ error: 'Prompt is required' }, 400);
@@ -216,7 +213,7 @@ app.post('/api/ai', authMiddleware, async (c: AppContext) => {
             });
         }
         const data = await response.json();
-        // @ts-ignore - This is a reasonable use case for ts-ignore as Gemini's type can be complex
+        // @ts-ignore
         const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
         return c.json({ response: aiResponse });
     } catch (error) {
@@ -238,8 +235,6 @@ app.get('/api/unshorten/:key', authMiddleware, async(c: AppContext) => {
     return c.json({ long_url: longUrl });
 });
 
-
-// --- PUBLIC REDIRECTOR ---
 app.get('/s/:key', async (c) => {
     const key = c.req.param('key');
     const url = await c.env.SITE_KV.get(`short_${key}`);
@@ -247,9 +242,6 @@ app.get('/s/:key', async (c) => {
     return c.text('URL not found', 404);
 });
 
-
-// --- FINAL EXPORT ---
-// This is the required export for Cloudflare Pages Functions
 export const onRequest: PagesFunction<Bindings> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
