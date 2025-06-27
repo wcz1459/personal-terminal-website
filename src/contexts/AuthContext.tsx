@@ -1,4 +1,4 @@
-import { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 
 interface User {
   username: string;
@@ -13,7 +13,6 @@ interface AuthContextType {
   getAuthHeader: () => { Authorization: string };
 }
 
-// Added for type safety
 interface LoginResponse {
   token: string;
   user: User;
@@ -23,19 +22,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(() => {
+      // Initialize token from localStorage on first load
+      return localStorage.getItem('token');
+  });
 
+  // This effect synchronizes the `user` state with the token from localStorage
   useEffect(() => {
+    const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-    if (token && storedUser) {
+    if (storedToken && storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+        setToken(storedToken);
+        setUser(JSON.parse(storedUser));
       } catch (e) {
-        logout();
+        // If stored data is corrupt, clear it.
+        localStorage.clear();
+        setToken(null);
+        setUser(null);
       }
     }
-  }, [token]);
+  }, []);
+
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }, []);
 
   const login = async (username: string, password: string, turnstileToken: string): Promise<boolean> => {
     try {
@@ -45,29 +59,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ username, password, turnstileToken }),
       });
       if (!response.ok) {
-        logout();
+        logout(); // Ensure state is cleared on failed login
         return false;
       }
 
-      const data = await response.json() as LoginResponse; // <--- 修改点
+      const data = await response.json() as LoginResponse;
       
-      setToken(data.token);
-      setUser(data.user);
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.token);
+      setUser(data.user);
       return true;
     } catch (error) {
       console.error('Login failed:', error);
-      logout();
+      logout(); // Ensure state is cleared on error
       return false;
     }
-  };
-
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
   };
 
   const getAuthHeader = () => ({
