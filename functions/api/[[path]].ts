@@ -3,18 +3,26 @@ import { cors } from 'hono/cors';
 import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
-// Define the Bindings type for Cloudflare environment variables and services
+// --- Type Definitions ---
+
 type Bindings = {
   DB: D1Database;
   SITE_KV: KVNamespace;
-  SHARE_BUCKET: R2Bucket; // Kept for future file sharing features
+  SHARE_BUCKET: R2Bucket;
   JWT_SECRET: string;
   TURNSTILE_SECRET_KEY: string;
   GEMINI_API_KEY: string;
 };
 
-// Define a type for the context object to avoid 'any'
-type AppContext = Context<{ Bindings: Bindings; Variables: { user: any } }>;
+interface DecodedJwtPayload {
+    sub: number;
+    username: string;
+    role: 'admin' | 'guest';
+    exp: number;
+}
+
+// This is the core context type we will use throughout the app
+type AppContext = Context<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>;
 
 interface TurnstileResponse {
   success: boolean;
@@ -23,12 +31,13 @@ interface GeoIPApiResponse {
   city: string; country: string; continent: string;
 }
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
 
-// --- CORS Middleware ---
+
+// --- Middleware ---
+
 app.use('/api/*', cors());
 
-// --- Auth Middleware ---
 const authMiddleware = async (c: AppContext, next: Next) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -36,7 +45,7 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    const decodedPayload = await verify(token, c.env.JWT_SECRET);
+    const decodedPayload = await verify(token, c.env.JWT_SECRET) as DecodedJwtPayload;
     c.set('user', decodedPayload);
     await next();
   } catch (e) {
@@ -44,10 +53,10 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
 };
 
+
 // --- PUBLIC ROUTES ---
 
-// Login Route
-app.post('/api/login', async (c: AppContext) => {
+app.post('/api/login', async (c) => {
   const { username, password, turnstileToken } = await c.req.json();
   if (!username || !password || !turnstileToken) {
     return c.json({ error: 'Missing required fields' }, 400);
@@ -72,7 +81,7 @@ app.post('/api/login', async (c: AppContext) => {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
   
-  const payload = { 
+  const payload: DecodedJwtPayload = { 
     sub: user.id, username: user.username, role: user.role, 
     exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
   };
@@ -82,15 +91,36 @@ app.post('/api/login', async (c: AppContext) => {
 
 
 // --- ADMIN ROUTES ---
-const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: any } }>();
-adminRoutes.use('*', authMiddleware, async (c: AppContext, next: Next) => {
+const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
+adminRoutes.use('*', authMiddleware); // First, ensure user is logged in
+adminRoutes.use('*', async (c: AppContext, next: Next) => { // Then, check if user is admin
     const user = c.get('user');
     if (user.role !== 'admin') return c.json({ error: 'Forbidden: Admin access required' }, 403);
     await next();
 });
 
-adminRoutes.post('/useradd', async (c: AppContext) => { /* ... (code unchanged) ... */ });
-adminRoutes.post('/userdel', async (c: AppContext) => { /* ... (code unchanged) ... */ });
+adminRoutes.post('/useradd', async (c: AppContext) => {
+    const { username, password, role } = await c.req.json();
+    if (!username || !password || !['admin', 'guest'].includes(role)) return c.json({ error: 'Invalid parameters' }, 400);
+    const passwordHash = hashSync(password, 10);
+    try {
+        await c.env.DB.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
+            .bind(username, passwordHash, role).run();
+        return c.json({ success: true, message: `User '${username}' created successfully.`});
+    } catch (e) {
+        return c.json({ error: 'Username may already exist or another error occurred.'}, 500);
+    }
+});
+adminRoutes.post('/userdel', async (c: AppContext) => {
+    const { username } = await c.req.json();
+    if (username === 'admin') return c.json({ error: 'Cannot delete the primary admin account'}, 400);
+    const { meta } = await c.env.DB.prepare("DELETE FROM users WHERE username = ?").bind(username).run();
+    if (meta.changes > 0) {
+        await c.env.SITE_KV.delete(`vfs_${username}`);
+        return c.json({ success: true, message: `User '${username}' and their data have been deleted.`});
+    }
+    return c.json({ error: `User '${username}' not found.`});
+});
 adminRoutes.post('/passwd', async (c: AppContext) => {
     const { username, newPassword } = await c.req.json();
     const currentUser = c.get('user');
@@ -110,16 +140,14 @@ app.route('/api/admin', adminRoutes);
 
 
 // --- VFS Routes ---
-const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: any } }>();
+const vfsRoutes = new Hono<{ Bindings: Bindings; Variables: { user: DecodedJwtPayload } }>();
 vfsRoutes.use('*', authMiddleware);
 vfsRoutes.get('/', async (c: AppContext) => {
   const user = c.get('user');
   const vfsKey = `vfs_${user.username}`;
   let vfsData: object | null = await c.env.SITE_KV.get(vfsKey, 'json');
   if (!vfsData) {
-    const defaultVfs = { '~': { 
-        'README.md': `# Welcome, ${user.username}!\n\nThis is your personal file system.` 
-    } };
+    const defaultVfs = { '~': { 'README.md': `# Welcome, ${user.username}!\n\nThis is your personal file system.` } };
     await c.env.SITE_KV.put(vfsKey, JSON.stringify(defaultVfs));
     vfsData = defaultVfs;
   }
@@ -135,18 +163,15 @@ vfsRoutes.post('/', async (c: AppContext) => {
 app.route('/api/vfs', vfsRoutes);
 
 
-// --- API PROXIES & HELPERS ---
+// --- API PROXIES & HELPERS (Publicly accessible) ---
 const NETEASE_API_BASE = 'https://netease-cloud-music-api-nine-delta-39.vercel.app';
 app.get('/api/music/search/:keywords', async (c) => fetch(`${NETEASE_API_BASE}/search?keywords=${c.req.param('keywords')}&limit=10`));
 app.get('/api/music/url/:id', async (c) => fetch(`${NETEASE_API_BASE}/song/url/v1?id=${c.req.param('id')}&level=exhigh`));
 app.get('/api/music/detail/:id', async (c) => fetch(`${NETEASE_API_BASE}/song/detail?ids=${c.req.param('id')}`));
-app.get('/api/video/search/:keywords', async (c) => {
-    const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${c.req.param('keywords')}`;
-    return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }});
-});
+app.get('/api/video/search/:keywords', async (c) => fetch(`https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${c.req.param('keywords')}`, { headers: { 'User-Agent': 'Mozilla/5.0' }}));
 app.get('/api/hitokoto', async () => fetch('https://v1.hitokoto.cn/?c=a&c=b&c=c&c=d'));
 app.get('/api/devjoke', async () => fetch('https://backend-omega-seven.vercel.app/api/getjoke'));
-app.get('/api/weather/:city', async(c) => fetch(`https://wttr.in/${c.req.param('city')}?format=%l:+%c+%t`));
+app.get('/api/weather/:city', async(c) => fetch(`https://wttr.in/${c.req.param('city')}?format=3`));
 app.get('/api/curl', async (c) => fetch(c.req.query('url') || ''));
 app.get('/api/dns/:domain', async(c) => fetch(`https://cloudflare-dns.com/dns-query?name=${c.req.param('domain')}&type=A`, { headers: {'accept': 'application/dns-json'} }));
 app.get('/api/isdown', async(c) => fetch(`https://downforeveryoneorjustme.com/v2/isitdown?host=${c.req.query('url')}`));
@@ -161,13 +186,45 @@ app.get('/api/npm/:package', async(c) => fetch(`https://registry.npmjs.org/${c.r
 
 
 // --- PROTECTED ROUTES ---
-app.post('/api/ai', authMiddleware, async (c: AppContext) => { /* ... (code unchanged) ... */ });
-app.post('/api/shorten', authMiddleware, async(c: AppContext) => { /* ... (code unchanged) ... */ });
-app.get('/api/unshorten/:key', authMiddleware, async(c: App-Context) => { /* ... (code unchanged) ... */ });
+app.post('/api/ai', authMiddleware, async (c: AppContext) => {
+    const { prompt } = await c.req.json<{ prompt: string }>();
+    if (!prompt) return c.json({ error: 'Prompt is required' }, 400);
+    const geminiApiKey = c.env.GEMINI_API_KEY;
+    if (!geminiApiKey) return c.json({ error: 'AI service is not configured.' }, 500);
+    const model = 'gemini-1.5-flash-latest';
+    const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+    try {
+        const response = await fetch(apiEndpoint, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        });
+        if (!response.ok) { return c.json({ error: `Gemini API error: ${response.statusText}` }, response.status); }
+        const data = await response.json();
+        // @ts-ignore
+        const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
+        return c.json({ response: aiResponse });
+    } catch (error) {
+        return c.json({ error: 'Failed to contact AI service.' }, 500);
+    }
+});
+app.post('/api/shorten', authMiddleware, async(c: AppContext) => {
+    const { url } = await c.req.json<{ url: string }>();
+    if (!url) return c.json({ error: 'URL is required.' }, 400);
+    const key = Math.random().toString(36).substring(2, 8);
+    await c.env.SITE_KV.put(`short_${key}`, url, { expirationTtl: 60 * 60 * 24 * 30 }); // 30 day expiry
+    const shortUrl = `${new URL(c.req.url).origin}/s/${key}`;
+    return c.json({ short_url: shortUrl });
+});
+app.get('/api/unshorten/:key', authMiddleware, async(c: AppContext) => {
+    const key = c.req.param('key');
+    const longUrl = await c.env.SITE_KV.get(`short_${key}`);
+    if (!longUrl) return c.json({ error: 'Short URL not found or expired.' }, 404);
+    return c.json({ long_url: longUrl });
+});
 
 
-// Public redirector for short URLs
-app.get('/s/:key', async (c: AppContext) => {
+// --- PUBLIC REDIRECTOR ---
+app.get('/s/:key', async (c) => {
     const key = c.req.param('key');
     const url = await c.env.SITE_KV.get(`short_${key}`);
     if (url) { return c.redirect(url, 301); }
@@ -175,7 +232,7 @@ app.get('/s/:key', async (c: AppContext) => {
 });
 
 
-// Export the Hono app for the Cloudflare Pages runtime
+// --- FINAL EXPORT ---
 export const onRequest: PagesFunction<Bindings> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
