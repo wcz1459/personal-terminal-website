@@ -491,7 +491,7 @@ export const processCommand = async (
             'I am a sixth-grade student who is passionate about Web development.',
             'This terminal website is built with React and the full power of the Linkium ecosystem.',
             'Feel free to explore the commands. Type `help` for a guide.'
-            '你好！我叫吴承泽。',
+            '你好！我叫吴承泽。'
             '我是一名对Web开发充满热情的六年级学生。',
             '这个终端网站是我最喜欢的项目之一，它使用 React 和 Linkium 的全套生态系统构建。',
             '欢迎探索这里的命令，如果需要帮助，请输入 `help`。'
