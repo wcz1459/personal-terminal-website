@@ -1,0 +1,92 @@
+/* Dracula theme as default, can be overridden by data-theme attribute */
+:root {
+  --background-color: #282a36;
+  --current-line: #44475a;
+  --foreground: #f8f8f2;
+  --comment: #6272a4;
+  --cyan: #8be9fd;
+  --green: #50fa7b;
+  --orange: #ffb86c;
+  --pink: #ff79c9;
+  --purple: #bd93f9;
+  --red: #ff5555;
+  --yellow: #f1fa8c;
+
+  --text-color: var(--foreground);
+  --prompt-user-color: var(--green);
+  --prompt-symbol-color: var(--pink);
+  --overlay-bg: rgba(10, 25, 47, 0.85);
+  --border-color: var(--current-line);
+  --header-bg: #21222c;
+  
+  --toast-info-bg: #3b82f6;
+  --toast-success-bg: #22c55e;
+  --toast-error-bg: #ef4444;
+}
+
+/* Add other themes here */
+[data-theme="gruvbox"] {
+  --background-color: #282828;
+  --foreground: #ebdbb2;
+  --comment: #928374;
+  --red: #cc241d;
+  --green: #98971a;
+  --yellow: #d79921;
+  --cyan: #689d6a;
+  --purple: #b16286;
+  --pink: #d3869b;
+  --prompt-user-color: var(--green);
+  --prompt-symbol-color: var(--purple);
+  --header-bg: #1d2021;
+}
+
+[data-theme="solarized"] {
+    --background-color: #002b36;
+    --foreground: #839496;
+    --comment: #586e75;
+    --red: #dc322f;
+    --green: #859900;
+    --yellow: #b58900;
+    --cyan: #2aa198;
+    --purple: #6c71c4;
+    --pink: #d33682;
+    --prompt-user-color: var(--green);
+    --prompt-symbol-color: var(--purple);
+    --header-bg: #073642;
+}
+
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #000;
+  color: var(--text-color);
+  font-family: 'Fira Code', 'Courier New', Courier, monospace;
+}
+
+.app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--overlay-bg);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .overlay {
+    padding: 0;
+  }
+}

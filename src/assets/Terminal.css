@@ -1,0 +1,131 @@
+.terminal-window {
+  width: 90%;
+  height: 90%;
+  max-width: 1200px;
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+.terminal-header {
+  background-color: var(--header-bg);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  flex-shrink: 0;
+  transition: background-color 0.3s;
+}
+
+.dots {
+  display: flex;
+  gap: 8px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.red { background-color: #ff5f56; }
+.yellow { background-color: #ffbd2e; }
+.green { background-color: #27c93f; }
+
+.title {
+  color: #8892b0;
+  margin: 0 auto;
+  font-size: 14px;
+}
+
+.terminal-body {
+  flex-grow: 1;
+  padding: 1rem;
+  overflow-y: scroll;
+  font-size: 16px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: var(--prompt-symbol-color) transparent;
+}
+
+.terminal-body::-webkit-scrollbar {
+  width: 8px;
+}
+.terminal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-body::-webkit-scrollbar-thumb {
+  background-color: var(--prompt-symbol-color);
+  border-radius: 4px;
+}
+
+.input-line {
+  display: flex;
+}
+
+.prompt-user { color: var(--prompt-user-color); transition: color 0.3s; }
+.prompt-symbol { color: var(--prompt-symbol-color); transition: color 0.3s; }
+
+.input-line input {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: inherit;
+  flex-grow: 1;
+  outline: none;
+  padding-left: 0.5rem;
+  transition: color 0.3s;
+}
+
+.terminal-body a {
+    color: var(--cyan);
+    text-decoration: underline;
+    transition: color 0.3s;
+}
+.terminal-body a:hover {
+    filter: brightness(1.2);
+}
+
+.audio-player {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--header-bg);
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 -5px 15px rgba(0,0,0,0.3);
+  color: var(--text-color);
+  text-align: center;
+  z-index: 100;
+  transition: background-color 0.3s, color 0.3s;
+}
+.audio-player p {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+}
+.audio-player audio {
+  width: 100%;
+  max-width: 300px;
+}
+
+@media (max-width: 768px) {
+  .terminal-window {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+  .terminal-body {
+    font-size: 14px;
+    padding: 0.5rem;
+  }
+  .audio-player {
+    width: 90%;
+  }
+}
