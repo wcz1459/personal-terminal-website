@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
+import { bearerAuth } from 'hono/bearer-auth';
 
 type Bindings = {
   DB: D1Database;

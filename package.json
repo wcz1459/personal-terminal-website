@@ -10,7 +10,6 @@
     "deploy": "wrangler pages deploy dist"
   },
   "dependencies": {
-    "@hono/bearer-auth": "^1.0.1",
     "bcrypt-ts": "^5.0.2",
     "hono": "^4.4.7",
     "react": "^18.2.0",
