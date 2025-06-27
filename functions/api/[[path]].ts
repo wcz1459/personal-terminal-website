@@ -1,5 +1,5 @@
 import { Hono, Context, Next } from 'hono';
-import { handle } from 'hono/cloudflare-pages'; // <--- 新增导入
+import { handle } from 'hono/cloudflare-pages';
 import { cors } from 'hono/cors';
 import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
@@ -19,6 +19,8 @@ interface UserPayload {
     sub: number;
     username: string;
     role: 'admin' | 'guest';
+    // FIX: Add index signature to make it compatible with JWTPayload for signing
+    [key: string]: any; 
 }
 
 // This type represents the verified data we get back and set on the context.
@@ -34,7 +36,7 @@ interface TurnstileResponse {
   success: boolean;
 }
 interface GeoIPApiResponse {
-  city: string; country: string; continent: string;
+  city: string; country:string; continent: string;
 }
 
 const app = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
@@ -50,10 +52,11 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    // `verify` returns a generic payload. We cast it to our specific type.
-    const payload = await verify(token, c.env.JWT_SECRET);
-    // This is a safe cast because we are the ones who signed it with this data.
-    c.set('user', payload as VerifiedUser);
+    // FIX: Use generics with verify to get a correctly typed payload
+    const payload = await verify<UserPayload>(token, c.env.JWT_SECRET);
+    
+    // The payload is now correctly typed, no need for unsafe casting.
+    c.set('user', payload);
     await next();
   } catch (e) {
     return c.json({ error: 'Unauthorized: Invalid token' }, 401);
@@ -87,10 +90,11 @@ app.post('/api/login', async (c) => {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
   
-  // The payload for `sign` is a plain object. Hono's `sign` function will add `exp` and `iat`
-  const payload: UserPayload & { exp: number } = { 
-    sub: user.id, username: user.username, role: user.role, 
-    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
+  const payload: UserPayload = { 
+    sub: user.id, 
+    username: user.username, 
+    role: user.role, 
+    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 hours
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
@@ -235,12 +239,4 @@ app.get('/s/:key', async (c) => {
     return c.text('URL not found', 404);
 });
 
-// <--- 修复的部分 ---
-// 之前的方式:
-// export const onRequest: PagesFunction<Bindings> = (context) => {
-//   return app.fetch(context.request, context.env, context); // <- 这里导致了类型错误
-// };
-//
-// 修复后的方式:
-// 使用 Hono 为 Cloudflare Pages 提供的官方适配器，它能正确处理 context 类型。
 export const onRequest = handle(app);
