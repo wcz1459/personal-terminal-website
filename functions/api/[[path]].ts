@@ -19,7 +19,7 @@ interface UserPayload {
     sub: number;
     username: string;
     role: 'admin' | 'guest';
-    // FIX: Add index signature to make it compatible with JWTPayload for signing
+    // This index signature is required for compatibility with the sign function.
     [key: string]: any; 
 }
 
@@ -52,11 +52,12 @@ const authMiddleware = async (c: AppContext, next: Next) => {
   }
   const token = authHeader.substring(7);
   try {
-    // FIX: Use generics with verify to get a correctly typed payload
-    const payload = await verify<UserPayload>(token, c.env.JWT_SECRET);
-    
-    // The payload is now correctly typed, no need for unsafe casting.
-    c.set('user', payload);
+    // FIX: Call verify without generics, as the installed version doesn't support it.
+    const payload = await verify(token, c.env.JWT_SECRET);
+
+    // FIX: Use a two-step assertion to cast the generic JWTPayload to our specific VerifiedUser type.
+    // This is safe because we are the ones who signed the token with this structure.
+    c.set('user', payload as unknown as VerifiedUser);
     await next();
   } catch (e) {
     return c.json({ error: 'Unauthorized: Invalid token' }, 401);
