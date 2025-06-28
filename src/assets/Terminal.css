@@ -3,7 +3,7 @@
   height: 90%;
   max-width: 1200px;
   /* 修改点: 将背景色改为带有透明度的 RGBA 值 */
-  background-color: rgba(40, 42, 54, 0.9); /* Dracula 背景色 90% 不透明度 */
+  background-color: rgba(40, 42, 54, 0.5); /* Dracula 背景色 90% 不透明度 */
   border: 1px solid var(--border-color);
   border-radius: 8px;
   display: flex;
@@ -16,10 +16,10 @@
 
 /* 针对不同主题调整背景透明度 */
 [data-theme="gruvbox"] .terminal-window {
-  background-color: rgba(40, 40, 40, 0.9);
+  background-color: rgba(40, 40, 40, 0.5);
 }
 [data-theme="solarized"] .terminal-window {
-  background-color: rgba(0, 43, 54, 0.9);
+  background-color: rgba(0, 43, 54, 0.5);
 }
 
 
