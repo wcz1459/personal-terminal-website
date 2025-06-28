@@ -1,3 +1,5 @@
+--- START OF FILE Terminal.tsx ---
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -70,6 +72,7 @@ const Terminal: React.FC = () => {
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [currentSong, setCurrentSong] = useState<{name: string, artist: string} | null>(null);
   const turnstileLoaded = useRef(false);
+  const turnstileRef = useRef<HTMLDivElement>(null); // Ref for the Turnstile container
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -117,8 +120,8 @@ const Terminal: React.FC = () => {
   useEffect(() => {
     if (loginAttempt) {
       const renderTurnstile = () => {
-        if (window.turnstile) {
-            window.turnstile.render('#turnstile-container', {
+        if (window.turnstile && turnstileRef.current) {
+            window.turnstile.render(turnstileRef.current, {
                 sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
                 callback: (token: string) => {
                     setLoginAttempt(prev => prev ? { ...prev, turnstileToken: token } : null);
@@ -136,6 +139,10 @@ const Terminal: React.FC = () => {
       };
       renderTurnstile();
     } else {
+      // When the component re-renders without the Turnstile div,
+      // its contents are automatically removed by React.
+      // Explicitly clearing innerHTML is a safeguard against potential leaks
+      // from the third-party script, but can be tricky. We'll keep it simple.
       const container = document.getElementById('turnstile-container');
       if (container) container.innerHTML = '';
     }
@@ -277,7 +284,7 @@ const Terminal: React.FC = () => {
             ))}
             {!isBooting && (
             <>
-                {loginAttempt && !isPasswordPrompt && <div id="turnstile-container"></div>}
+                {loginAttempt && !isPasswordPrompt && <div id="turnstile-container" ref={turnstileRef}></div>}
                 <div className="input-line" style={{ display: (isPasswordPrompt || (!!loginAttempt && !isPasswordPrompt)) ? 'none' : 'flex' }}>
                     <span dangerouslySetInnerHTML={{ __html: prompt.replace(/ /g, '&nbsp;') }} />
                     <input
