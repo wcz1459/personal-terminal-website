@@ -74,7 +74,7 @@ const Terminal: React.FC = () => {
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hostname = "terminal.wcz.com"; // Centralized hostname for display
+  const hostname = "linkium.xyz"; // Centralized hostname for display
   const prompt = isJsRepl ? `<span style="color:var(--yellow);">&gt;&nbsp;</span>` : `<span class="prompt-user">${user?.username || 'guest'}@${hostname}</span><span class="prompt-symbol">:${currentPath}$ </span>`;
   
   const scrollToBottom = () => {
