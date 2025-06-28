@@ -1,5 +1,3 @@
---- START OF FILE Terminal.tsx ---
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
