@@ -1,6 +1,6 @@
 import { Hono, Context, Next } from 'hono';
 import { cors } from 'hono/cors';
-import { sign, verify, JWTPayload } from 'hono/jwt';
+import { sign, verify } from 'hono/jwt';
 import { hashSync, compareSync } from 'bcrypt-ts';
 
 // --- Type Definitions ---
@@ -92,10 +92,10 @@ app.post('/api/login', async (c) => {
     return c.json({ error: 'Invalid username or password' }, 401);
   }
   
-  // The payload for `sign` is a plain object. Hono's `sign` function will add `exp` and `iat`
-  const payload: UserPayload & { exp: number } = { 
+  // The payload for `sign` is a plain object. Hono's `sign` function will add `iat`.
+  const payload = { 
     sub: user.id, username: user.username, role: user.role, 
-    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
+    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // exp in seconds for 24 hours
   };
   const token = await sign(payload, c.env.JWT_SECRET);
   return c.json({ token, user: { username: user.username, role: user.role } });
@@ -103,9 +103,6 @@ app.post('/api/login', async (c) => {
 
 
 // --- ADMIN ROUTES, VFS ROUTES, API PROXIES ---
-// The logic within these routes remains unchanged as the core issue was the type definition.
-// I am providing the full code to prevent any further issues.
-
 const adminRoutes = new Hono<{ Bindings: Bindings; Variables: { user: VerifiedUser } }>();
 adminRoutes.use('*', authMiddleware);
 adminRoutes.use('*', async (c: AppContext, next: Next) => {
@@ -243,5 +240,5 @@ app.get('/s/:key', async (c) => {
 });
 
 export const onRequest: PagesFunction<Bindings> = (context) => {
-  return app.fetch(context.request, context.env, context);
+  return app.fetch(context.request, context.env);
 };
